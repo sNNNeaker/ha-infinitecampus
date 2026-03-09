@@ -1,0 +1,27 @@
+{
+  "config": {
+    "step": {
+      "user": {
+        "title": "Connect to Infinite Campus",
+        "description": "Enter your portal URL and credentials.",
+        "data": {
+          "base_url": "Portal URL",
+          "username": "Username",
+          "password": "Password"
+        }
+      },
+      "app_name": {
+        "title": "App Name",
+        "description": "It's ?appName= in your portal URL.",
+        "data": {
+          "app_name": "App name"
+        }
+      }
+    },
+    "error": {
+      "cannot_connect": "Failed to connect",
+      "invalid_auth": "Invalid authentication",
+      "unknown": "Unexpected error"
+    }
+  }
+}
