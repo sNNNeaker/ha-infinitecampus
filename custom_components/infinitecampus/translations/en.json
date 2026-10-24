@@ -16,12 +16,23 @@
         "data": {
           "app_name": "App name"
         }
+      },
+      "reauth_confirm": {
+        "title": "Re-authenticate",
+        "description": "The portal rejected the login for {username}. Enter the current password.",
+        "data": {
+          "password": "Password"
+        }
       }
     },
     "error": {
       "cannot_connect": "Failed to connect",
       "invalid_auth": "Invalid authentication",
       "unknown": "Unexpected error"
+    },
+    "abort": {
+      "already_configured": "Account is already configured",
+      "reauth_successful": "Re-authentication was successful."
     }
   }
 }

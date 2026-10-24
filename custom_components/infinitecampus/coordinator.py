@@ -9,7 +9,9 @@ from dataclasses import dataclass, field
 from datetime import date
 from typing import Any
 
+from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
+from homeassistant.exceptions import ConfigEntryAuthFailed
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator, UpdateFailed
 from homeassistant.util import dt as dt_util
 
@@ -95,10 +97,16 @@ class InfiniteCampusDataUpdateCoordinator(
 ):
     """Coordinator for Infinite Campus data."""
 
-    def __init__(self, hass: HomeAssistant, client: InfiniteCampusClient) -> None:
+    def __init__(
+        self,
+        hass: HomeAssistant,
+        client: InfiniteCampusClient,
+        config_entry: ConfigEntry,
+    ) -> None:
         super().__init__(
             hass,
             logger=_LOGGER,
+            config_entry=config_entry,
             name="Infinite Campus",
             update_interval=DEFAULT_UPDATE_INTERVAL,
         )
@@ -245,7 +253,7 @@ class InfiniteCampusDataUpdateCoordinator(
 
             return snapshots
         except InfiniteCampusAuthError as err:
-            raise UpdateFailed("Invalid authentication") from err
+            raise ConfigEntryAuthFailed("Invalid authentication") from err
         except (InfiniteCampusConnectionError, InfiniteCampusError) as err:
             raise UpdateFailed(str(err)) from err
 

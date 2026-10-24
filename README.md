@@ -15,12 +15,24 @@ It creates a device for each student and adds sensors for grades, classes, assig
 
 ## Install
 
-### HACS
+Submitted to the HACS community catalog; until it is listed, add it as a **custom repository**. Once listed, search for **Infinite Campus** instead and skip the custom repository step.
 
-1. Add `https://github.com/sNNNeaker/ha-infinitecampus` as a custom repository in HACS.
-2. Category: `Integration`
-3. Install `Infinite Campus`
-4. Restart Home Assistant
+### Via the Marketplace (Home Assistant 2026.11 and newer)
+
+From 2026.11 HACS is built into Home Assistant as the **Marketplace** (Settings → Marketplace).
+
+1. Add `https://github.com/sNNNeaker/ha-infinitecampus` as a custom repository of type **Integration**. Custom repositories are fetched through the GitHub API, so the Marketplace asks you to connect a GitHub account the first time (catalog entries don't need one).
+2. Download **Infinite Campus**. No restart is needed on first install.
+3. Settings → Devices & services → Add integration → **Infinite Campus** (see Setup), or use
+   [![Open your Home Assistant instance and start setting up a new integration.](https://my.home-assistant.io/badges/config_flow_start.svg)](https://my.home-assistant.io/redirect/config_flow_start/?domain=infinitecampus)
+
+Updates show up under Settings → Updates; installing an update needs a restart, which the Marketplace offers via a repair.
+
+### Via HACS (Home Assistant 2026.10 and older)
+
+1. Add `https://github.com/sNNNeaker/ha-infinitecampus` as a custom repository in HACS, category `Integration`.
+2. Install `Infinite Campus`.
+3. Restart Home Assistant.
 
 ### Manual
 
@@ -41,6 +53,8 @@ Example:
 `https://yourdistrict.infinitecampus.org/campus/nav-wrapper/parent/portal/parent/home?appName=yourdistrict`
 
 If the URL includes `appName=...`, the integration will use it. If not, it will ask for the app name.
+
+If the portal rejects the login (for example after a password change), the integration stops polling and asks for the new password (Settings → Repairs / the integration card) instead of retrying.
 
 ## Sensors
 

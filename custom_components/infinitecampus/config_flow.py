@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from collections.abc import Mapping
 from typing import Any
 import re
 from urllib.parse import parse_qs, urlparse
@@ -11,7 +12,7 @@ from homeassistant import config_entries
 from homeassistant.const import CONF_PASSWORD, CONF_USERNAME
 from homeassistant.core import HomeAssistant
 from homeassistant.data_entry_flow import FlowResult
-from homeassistant.helpers.aiohttp_client import async_get_clientsession
+from homeassistant.helpers.aiohttp_client import async_create_clientsession
 from homeassistant.helpers import selector
 
 from .api import InfiniteCampusAuthError, InfiniteCampusClient, InfiniteCampusError
@@ -55,19 +56,26 @@ def _parse_portal_input(value: str) -> tuple[str, str | None]:
 
 
 async def _validate_input(
-    hass: HomeAssistant, data: dict[str, Any], base_url: str, app_name: str
+    hass: HomeAssistant,
+    data: dict[str, Any],
+    base_url: str,
+    app_name: str,
+    portal_login_page: str = DEFAULT_PORTAL_LOGIN_PAGE,
 ) -> None:
     """Validate credentials by loading students."""
-    session = async_get_clientsession(hass)
+    session = async_create_clientsession(hass)
     client = InfiniteCampusClient(
         session,
         base_url,
         app_name,
         data[CONF_USERNAME],
         data[CONF_PASSWORD],
-        DEFAULT_PORTAL_LOGIN_PAGE,
+        portal_login_page,
     )
-    await client.async_get_students()
+    try:
+        await client.async_get_students()
+    finally:
+        await session.close()
 
 
 class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
@@ -166,5 +174,53 @@ class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         return self.async_show_form(
             step_id="app_name",
             data_schema=vol.Schema({vol.Required(CONF_APP_NAME): str}),
+            errors=errors,
+        )
+
+    async def async_step_reauth(self, entry_data: Mapping[str, Any]) -> FlowResult:
+        """Handle re-authentication after the portal rejected the login."""
+        return await self.async_step_reauth_confirm()
+
+    async def async_step_reauth_confirm(
+        self, user_input: dict[str, Any] | None = None
+    ) -> FlowResult:
+        """Ask for the new password."""
+        errors: dict[str, str] = {}
+        entry = self._get_reauth_entry()
+
+        if user_input is not None:
+            new_password = user_input[CONF_PASSWORD]
+            try:
+                await _validate_input(
+                    self.hass,
+                    {
+                        CONF_USERNAME: entry.data[CONF_USERNAME],
+                        CONF_PASSWORD: new_password,
+                    },
+                    entry.data[CONF_BASE_URL],
+                    entry.data[CONF_APP_NAME],
+                    entry.data[CONF_PORTAL_LOGIN_PAGE],
+                )
+            except InfiniteCampusAuthError:
+                errors["base"] = "invalid_auth"
+            except InfiniteCampusError:
+                errors["base"] = "cannot_connect"
+            else:
+                return self.async_update_reload_and_abort(
+                    entry, data_updates={CONF_PASSWORD: new_password}
+                )
+
+        return self.async_show_form(
+            step_id="reauth_confirm",
+            data_schema=vol.Schema(
+                {
+                    vol.Required(CONF_PASSWORD): selector.TextSelector(
+                        selector.TextSelectorConfig(
+                            type=selector.TextSelectorType.PASSWORD
+                        )
+                    ),
+                }
+            ),
+            description_placeholders={"username": entry.data[CONF_USERNAME]},
             errors=errors,
         )

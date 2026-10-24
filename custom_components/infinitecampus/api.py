@@ -23,6 +23,10 @@ class InfiniteCampusConnectionError(InfiniteCampusError):
     """Connection error."""
 
 
+class _SessionExpired(Exception):
+    """Internal: the portal session cookie is no longer accepted."""
+
+
 class InfiniteCampusClient:
     """HTTP client for Infinite Campus portal endpoints."""
 
@@ -231,7 +235,28 @@ class InfiniteCampusClient:
         path: str,
         params: dict[str, str] | None = None,
     ) -> Any:
-        await self.async_ensure_login()
+        """Request JSON; on an auth-looking response log in again and retry once."""
+        for attempt in (1, 2):
+            await self.async_ensure_login()
+            try:
+                result = await self._request_json_once(method, path, params)
+            except _SessionExpired:
+                # Cookie no longer valid: force a fresh login before retrying.
+                self._last_login = None
+                if attempt == 2:
+                    raise InfiniteCampusAuthError(
+                        "Authentication required"
+                    ) from None
+                continue
+            return result
+        raise InfiniteCampusAuthError("Authentication required")  # pragma: no cover
+
+    async def _request_json_once(
+        self,
+        method: str,
+        path: str,
+        params: dict[str, str] | None,
+    ) -> Any:
         url = f"{self._base_url}{path}"
         try:
             async with self._semaphore:
@@ -239,7 +264,7 @@ class InfiniteCampusClient:
                     method, url, params=params, allow_redirects=False
                 ) as resp:
                     if resp.status in (401, 403, 302):
-                        raise InfiniteCampusAuthError("Authentication required")
+                        raise _SessionExpired
                     if resp.status >= 400:
                         raise InfiniteCampusConnectionError(
                             f"Request failed: {resp.status}"
@@ -248,7 +273,7 @@ class InfiniteCampusClient:
                     if "application/json" in content_type:
                         return await resp.json()
                     if "text/html" in content_type:
-                        raise InfiniteCampusAuthError("Authentication required")
+                        raise _SessionExpired
                     text = (await resp.text()).strip()
                     if text == "":
                         return None
