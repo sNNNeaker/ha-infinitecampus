@@ -1,3 +1,10 @@
+<p align="center">
+  <!-- Plain <img> with an absolute URL: the HACS/Marketplace README renderer
+       doesn't support <picture>/<source>, and relative paths only resolve on
+       GitHub. -->
+  <img alt="Infinite Campus" src="https://raw.githubusercontent.com/sNNNeaker/ha-infinitecampus/main/custom_components/infinitecampus/brand/logo%402x.png" width="420">
+</p>
+
 # Infinite Campus for Home Assistant
 
 Custom Home Assistant integration for the Infinite Campus parent portal.
