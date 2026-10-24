@@ -1,9 +1,12 @@
 {
   "domain": "infinitecampus",
   "name": "Infinite Campus",
-  "version": "0.2.3",
+  "codeowners": ["@sNNNeaker"],
   "config_flow": true,
-  "documentation": "https://github.com/sp32087/ha-infinitecampus",
+  "dependencies": [],
+  "documentation": "https://github.com/sNNNeaker/ha-infinitecampus",
+  "iot_class": "cloud_polling",
+  "issue_tracker": "https://github.com/sNNNeaker/ha-infinitecampus/issues",
   "requirements": [],
-  "iot_class": "cloud_polling"
+  "version": "0.3.0"
 }

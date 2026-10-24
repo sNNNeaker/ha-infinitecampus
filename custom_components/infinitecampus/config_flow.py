@@ -12,6 +12,7 @@ from homeassistant.const import CONF_PASSWORD, CONF_USERNAME
 from homeassistant.core import HomeAssistant
 from homeassistant.data_entry_flow import FlowResult
 from homeassistant.helpers.aiohttp_client import async_get_clientsession
+from homeassistant.helpers import selector
 
 from .api import InfiniteCampusAuthError, InfiniteCampusClient, InfiniteCampusError
 from .const import (
@@ -112,7 +113,11 @@ class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             {
                 vol.Required(CONF_BASE_URL): str,
                 vol.Required(CONF_USERNAME): str,
-                vol.Required(CONF_PASSWORD): str,
+                vol.Required(CONF_PASSWORD): selector.TextSelector(
+                    selector.TextSelectorConfig(
+                        type=selector.TextSelectorType.PASSWORD
+                    )
+                ),
             }
         )
 

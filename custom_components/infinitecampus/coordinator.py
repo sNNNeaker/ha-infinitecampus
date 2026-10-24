@@ -5,7 +5,7 @@ from __future__ import annotations
 import asyncio
 import logging
 import re
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import date
 from typing import Any
 
@@ -87,6 +87,7 @@ class StudentSnapshot:
     attendance_total_absent: int | None
     attendance_total_tardy: int | None
     attendance_by_course: dict[str, dict[str, int]]
+    attendance_days: list[dict[str, Any]] = field(default_factory=list)
 
 
 class InfiniteCampusDataUpdateCoordinator(
@@ -189,6 +190,7 @@ class InfiniteCampusDataUpdateCoordinator(
 
                 enrollment_id = _current_enrollment_id(student)
                 attendance_by_course: dict[str, dict[str, int]] = {}
+                attendance_days: list[dict[str, Any]] = []
                 if enrollment_id is not None:
                     attendance_payload = await self._client.async_get_attendance_events(
                         person_id, enrollment_id
@@ -198,6 +200,11 @@ class InfiniteCampusDataUpdateCoordinator(
                         attendance_total_absent,
                         attendance_total_tardy,
                     ) = _summarize_attendance(attendance_payload or [], course_map)
+                    attendance_days = _summarize_attendance_days(
+                        attendance_payload or [],
+                        course_map,
+                        _count_school_periods(courses),
+                    )
                 else:
                     attendance_total_absent = 0
                     attendance_total_tardy = 0
@@ -233,6 +240,7 @@ class InfiniteCampusDataUpdateCoordinator(
                     attendance_total_absent=attendance_total_absent,
                     attendance_total_tardy=attendance_total_tardy,
                     attendance_by_course=attendance_by_course,
+                    attendance_days=attendance_days,
                 )
 
             return snapshots
@@ -640,6 +648,156 @@ def _summarize_attendance(
                 elif kind == "tardy":
                     total_tardy += 1
     return counts, total_absent, total_tardy
+
+
+MAX_ATTENDANCE_DAYS = 200
+
+
+def _count_school_periods(courses: list[Course]) -> int | None:
+    """Number of distinct period names in the current-term roster."""
+    periods = {str(c.period).strip() for c in courses if c.period}
+    periods.discard("")
+    return len(periods) or None
+
+
+def _period_sort_key(name: str) -> tuple[int, int, str]:
+    text = name.strip()
+    if text.isdigit():
+        return (0, int(text), "")
+    return (1, 0, text.lower())
+
+
+def _event_date(event: dict[str, Any]) -> str | None:
+    for key in ("localDate", "date"):
+        value = event.get(key)
+        if value:
+            text = str(value)[:10]
+            if _parse_date(text) is not None:
+                return text
+    return None
+
+
+def _is_excused(event: dict[str, Any]) -> bool:
+    excuse_type = str(event.get("excuseType") or "").strip().upper()
+    excuse = str(event.get("excuse") or "").strip().upper()
+    if excuse_type in ("E", "X") or excuse in ("E", "X", "EXC", "EXCUSED"):
+        return True
+    for text in (event.get("description"), event.get("excuse")):
+        lowered = str(text or "").lower()
+        if "excused" in lowered and "unexcused" not in lowered:
+            return True
+    return False
+
+
+def _iter_attendance_events(payload: Any) -> list[dict[str, Any]]:
+    if isinstance(payload, dict):
+        payload = [payload]
+    result: list[dict[str, Any]] = []
+    for calendar in payload or []:
+        if not isinstance(calendar, dict):
+            continue
+        events = calendar.get("events") or []
+        if isinstance(events, dict):
+            events = [events]
+        result.extend(e for e in events if isinstance(e, dict))
+    return result
+
+
+def _summarize_attendance_days(
+    payload: Any,
+    course_map: dict[int, str],
+    school_periods: int | None,
+) -> list[dict[str, Any]]:
+    """Group classified attendance events by day, newest first."""
+    by_date: dict[str, list[tuple[str, dict[str, Any], list[str], list[str]]]] = {}
+    for event in _iter_attendance_events(payload):
+        kind = _attendance_kind(event)
+        date_str = _event_date(event)
+        if kind is None or date_str is None:
+            continue
+        placements = [
+            p for p in (event.get("sectionPlacements") or []) if isinstance(p, dict)
+        ]
+        periods: list[str] = []
+        courses: list[str] = []
+        for placement in placements:
+            period = placement.get("periodName")
+            if period not in (None, ""):
+                periods.append(str(period).strip())
+            course_name = placement.get("courseName")
+            if not course_name:
+                section_id = _coerce_int(placement.get("sectionID"))
+                if section_id is not None:
+                    course_name = course_map.get(section_id)
+            if course_name:
+                courses.append(str(course_name))
+        if not placements and event.get("periodID") not in (None, ""):
+            periods.append(str(event.get("periodID")))
+        by_date.setdefault(date_str, []).append((kind, event, periods, courses))
+
+    days: list[dict[str, Any]] = []
+    for date_str in sorted(by_date, reverse=True)[:MAX_ATTENDANCE_DAYS]:
+        entries = by_date[date_str]
+        all_periods: set[str] = set()
+        absent_periods: set[str] = set()
+        tardy_periods: set[str] = set()
+        courses: set[str] = set()
+        codes: set[str] = set()
+        whole_day = False
+        for kind, event, periods, event_courses in entries:
+            all_periods.update(periods)
+            courses.update(event_courses)
+            code = str(event.get("code") or "").strip()
+            if code:
+                codes.add(code)
+            if kind == "absent":
+                absent_periods.update(periods)
+                if event.get("wholeDayAbsence"):
+                    whole_day = True
+            else:
+                tardy_periods.update(periods)
+        has_absent = any(kind == "absent" for kind, *_ in entries)
+        if whole_day or (
+            isinstance(school_periods, int)
+            and school_periods > 0
+            and len(absent_periods) >= school_periods
+        ):
+            status = "absent"
+        elif has_absent:
+            status = "partial"
+        else:
+            status = "tardy"
+        relevant = [
+            event
+            for kind, event, *_ in entries
+            if kind == ("absent" if has_absent else "tardy")
+        ]
+        flags = [_is_excused(event) for event in relevant]
+        if all(flags):
+            excused: bool | str = True
+        elif not any(flags):
+            excused = False
+        else:
+            excused = "mixed"
+        days.append(
+            {
+                "date": date_str,
+                "periods": sorted(all_periods, key=_period_sort_key),
+                "courses": sorted(courses),
+                "codes": sorted(codes),
+                "absent_periods": len(absent_periods),
+                "tardy_periods": len(tardy_periods),
+                "status": status,
+                "excused": excused,
+            }
+        )
+    return days
+
+
+def attendance_today(days: list[dict[str, Any]], today: date) -> dict[str, Any] | None:
+    """Return the attendance entry for the given day, if any."""
+    target = today.isoformat()
+    return next((day for day in days or [] if day.get("date") == target), None)
 
 
 def _attendance_kind(event: dict[str, Any]) -> str | None:

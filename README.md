@@ -2,13 +2,15 @@
 
 Custom Home Assistant integration for the Infinite Campus parent portal.
 
+Fork of [sp32087/ha-infinitecampus](https://github.com/sp32087/ha-infinitecampus) (MIT). Credit for the original integration goes to sp32087.
+
 It creates a device for each student and adds sensors for grades, classes, assignments, missing work, failed assignments, and attendance.
 
 ## Install
 
 ### HACS
 
-1. Add this repo as a custom repository in HACS.
+1. Add `https://github.com/sNNNeaker/ha-infinitecampus` as a custom repository in HACS.
 2. Category: `Integration`
 3. Install `Infinite Campus`
 4. Restart Home Assistant
@@ -40,6 +42,7 @@ Each student gets:
 - `Overall Grade`
 - `Missing Assignments`
 - `Attendance`
+- `Attendance Today`
 - `Failed Assignments`
 - `Assignments`
 - one sensor per class
@@ -53,6 +56,30 @@ Class sensors include:
 - tardies
 - `term1_grade` to `term4_grade`
 - `final_grade`
+
+## Per-day attendance (this fork)
+
+`Attendance` sensor (state unchanged: total absences) gains attributes:
+
+- `days`: list of per-day entries (`date`, `periods`, `courses`, `codes`, `absent_periods`, `tardy_periods`, `status`, `excused`), newest first, max 200
+- `absent_days`, `partial_days`, `tardy_days`: number of days per status
+
+`Attendance Today` sensor (enum: `none`, `tardy`, `partial`, `absent`):
+
+- State is today's day status, `none` if nothing was recorded
+- Attributes: `periods`, `courses`, `codes`, `excused`
+
+`Attendance` calendar (one per student):
+
+- One all-day event per day with an absence or tardy, e.g. `Partial absence (excused): P1, P2`
+- Description lists courses and attendance codes
+- Only past and current days appear; attendance is known after the fact
+
+Day status rules:
+
+- `absent`: a whole-day absence is flagged, or all of the student's class periods are marked absent
+- `partial`: some periods absent; `tardy`: only tardies
+- `excused` is `true`, `false` or `mixed` based on the excuse fields of the absent events (tardy events if none)
 
 ## Notes
 

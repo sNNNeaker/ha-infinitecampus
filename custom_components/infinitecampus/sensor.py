@@ -5,12 +5,17 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any
 
-from homeassistant.components.sensor import SensorEntity, SensorEntityDescription
+from homeassistant.components.sensor import (
+    SensorDeviceClass,
+    SensorEntity,
+    SensorEntityDescription,
+)
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.entity import DeviceInfo
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
+from homeassistant.util import dt as dt_util
 
 from .const import DOMAIN
 from .coordinator import (
@@ -18,6 +23,7 @@ from .coordinator import (
     CourseGrade,
     InfiniteCampusDataUpdateCoordinator,
     StudentSnapshot,
+    attendance_today,
 )
 
 
@@ -41,6 +47,13 @@ SENSOR_DESCRIPTIONS: tuple[StudentSensorDescription, ...] = (
         key="attendance",
         name="Attendance",
         icon="mdi:account-check",
+    ),
+    StudentSensorDescription(
+        key="attendance_today",
+        name="Attendance Today",
+        icon="mdi:school",
+        device_class=SensorDeviceClass.ENUM,
+        options=["none", "tardy", "partial", "absent"],
     ),
     StudentSensorDescription(
         key="failed_assignments",
@@ -87,6 +100,10 @@ class InfiniteCampusStudentSensor(
 ):
     """Sensor for a student metric."""
 
+    # The per-day list can exceed the recorder's attribute size limit;
+    # the attendance calendar keeps that history instead.
+    _unrecorded_attributes = frozenset({"days"})
+
     def __init__(
         self,
         coordinator: InfiniteCampusDataUpdateCoordinator,
@@ -122,6 +139,9 @@ class InfiniteCampusStudentSensor(
             value = student.missing_assignments
         elif key == "attendance":
             value = student.attendance_total_absent
+        elif key == "attendance_today":
+            today = attendance_today(student.attendance_days, dt_util.now().date())
+            return today["status"] if today else "none"
         elif key == "failed_assignments":
             value = student.failed_assignments_total
         elif key == "assignments":
@@ -171,10 +191,24 @@ class InfiniteCampusStudentSensor(
                 {
                     "total_absent": student.attendance_total_absent,
                     "total_tardy": student.attendance_total_tardy,
+                    "days": student.attendance_days,
+                    "absent_days": _count_days(student.attendance_days, "absent"),
+                    "partial_days": _count_days(student.attendance_days, "partial"),
+                    "tardy_days": _count_days(student.attendance_days, "tardy"),
                     "courses": student.attendance_by_course,
                     **student.attendance_by_course,
                 }
             )
+        if key == "attendance_today":
+            today = attendance_today(student.attendance_days, dt_util.now().date())
+            if not today:
+                return None
+            return {
+                "periods": today.get("periods"),
+                "courses": today.get("courses"),
+                "codes": today.get("codes"),
+                "excused": today.get("excused"),
+            }
         if key == "failed_assignments":
             return _with_na(
                 {
@@ -286,6 +320,10 @@ class InfiniteCampusCourseSensor(
         if not student:
             return None
         return student.course_grades.get(self._section_id)
+
+
+def _count_days(days: list[dict[str, Any]], status: str) -> int:
+    return sum(1 for day in days or [] if day.get("status") == status)
 
 
 def _course_grade_attributes(grade: CourseGrade) -> dict[str, Any]:
