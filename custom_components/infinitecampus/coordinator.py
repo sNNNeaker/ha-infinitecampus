@@ -757,10 +757,17 @@ def _summarize_attendance_days(
             else:
                 tardy_periods.update(periods)
         has_absent = any(kind == "absent" for kind, *_ in entries)
-        if whole_day or (
-            isinstance(school_periods, int)
-            and school_periods > 0
-            and len(absent_periods) >= school_periods
+        # Elementary schools take attendance per half day (AM/PM), not per
+        # roster period, so both halves absent is a full day.
+        half_days = {"AM", "PM"} <= {period.upper() for period in absent_periods}
+        if (
+            whole_day
+            or half_days
+            or (
+                isinstance(school_periods, int)
+                and school_periods > 0
+                and len(absent_periods) >= school_periods
+            )
         ):
             status = "absent"
         elif has_absent:

@@ -77,7 +77,7 @@ Class sensors include:
 
 Day status rules:
 
-- `absent`: a whole-day absence is flagged, or all of the student's class periods are marked absent
+- `absent`: a whole-day absence is flagged, both half days (AM and PM) are absent, or all of the student's class periods are marked absent
 - `partial`: some periods absent; `tardy`: only tardies
 - `excused` is `true`, `false` or `mixed` based on the excuse fields of the absent events (tardy events if none)
 
