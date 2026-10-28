@@ -112,6 +112,11 @@ class InfiniteCampusDataUpdateCoordinator(
         )
         self._client = client
 
+    @property
+    def client(self) -> InfiniteCampusClient:
+        """Return the API client (used by the photo entities)."""
+        return self._client
+
     async def _async_update_data(self) -> dict[int, StudentSnapshot]:
         try:
             today = dt_util.now().date()

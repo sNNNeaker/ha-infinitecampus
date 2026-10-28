@@ -102,6 +102,10 @@ Day status rules:
 - `partial`: some periods absent; `tardy`: only tardies
 - `excused` is `true`, `false` or `mixed` based on the excuse fields of the absent events (tardy events if none)
 
+## Student photo (this fork)
+
+`Photo` image entity (one per student): the student's picture from the parent portal (`personPicture.jsp`), checked once a day, so a new school photo comes in automatically. Stays unknown if the portal has no photo. Like every image entity, it is only served to logged-in users or with the entity's rotating access token (`entity_picture` attribute), so it can be used as a template `picture` elsewhere.
+
 ## Notes
 
 - This uses the Infinite Campus `parents` portal.

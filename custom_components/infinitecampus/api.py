@@ -229,6 +229,45 @@ class InfiniteCampusClient:
                 return None
         return None
 
+    async def async_get_photo(self, person_id: int) -> tuple[bytes, str] | None:
+        """Return (image bytes, content type) of the student's portal photo, if any."""
+        for attempt in (1, 2):
+            await self.async_ensure_login()
+            try:
+                return await self._request_photo_once(person_id)
+            except _SessionExpired:
+                self._last_login = None
+                if attempt == 2:
+                    raise InfiniteCampusAuthError(
+                        "Authentication required"
+                    ) from None
+        return None  # pragma: no cover
+
+    async def _request_photo_once(self, person_id: int) -> tuple[bytes, str] | None:
+        url = f"{self._base_url}/campus/personPicture.jsp"
+        params = {"personID": str(person_id), "alt": "student"}
+        try:
+            async with self._semaphore:
+                async with self._session.get(
+                    url, params=params, allow_redirects=False
+                ) as resp:
+                    if resp.status in (401, 403, 302):
+                        raise _SessionExpired
+                    if resp.status == 404:
+                        return None
+                    if resp.status >= 400:
+                        raise InfiniteCampusConnectionError(
+                            f"Request failed: {resp.status}"
+                        )
+                    content_type = resp.headers.get("Content-Type", "")
+                    if "text/html" in content_type:
+                        raise _SessionExpired
+                    if not content_type.startswith("image/"):
+                        return None
+                    return await resp.read(), content_type.split(";")[0]
+        except aiohttp.ClientError as err:
+            raise InfiniteCampusConnectionError(str(err)) from err
+
     async def _request_json(
         self,
         method: str,

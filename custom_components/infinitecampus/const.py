@@ -15,4 +15,4 @@ CONF_PORTAL_LOGIN_PAGE = "portal_login_page"
 DEFAULT_PORTAL_LOGIN_PAGE = "parents"
 DEFAULT_UPDATE_INTERVAL = timedelta(minutes=15)
 
-PLATFORMS: list[Platform] = [Platform.SENSOR, Platform.CALENDAR]
+PLATFORMS: list[Platform] = [Platform.SENSOR, Platform.CALENDAR, Platform.IMAGE]
