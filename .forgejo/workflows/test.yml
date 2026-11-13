@@ -1,0 +1,14 @@
+# Local pre-release test on a self-hosted Forgejo. GitHub ignores this folder.
+# HACS validation is not here on purpose: it checks the GitHub repo itself and runs there.
+name: Local test
+on: [push]
+
+jobs:
+  hassfest:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: hassfest
+        # The official action mounts a host path, which is empty on this runner. Share this job's volumes instead.
+        # The hassfest image exists for amd64 only; the platform flag lets an arm64 runner emulate it.
+        run: docker run --rm --platform linux/amd64 --volumes-from "$(hostname)" -w "$GITHUB_WORKSPACE" ghcr.io/home-assistant/hassfest
