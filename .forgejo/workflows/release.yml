@@ -1,0 +1,93 @@
+# Manual release from a self-hosted Forgejo to GitHub. GitHub ignores this folder.
+# Start: Forgejo web UI > Actions > Release to GitHub > Run workflow, on the default branch.
+# Safe by default: it is a dry run unless "dry_run" is switched off.
+name: Release to GitHub
+on:
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: "Dry run: check everything, push nothing"
+        type: boolean
+        default: true
+      tag:
+        description: "Existing version tag to publish too, for example v1.2.3 (empty = branch only)"
+        type: string
+        default: ""
+      release:
+        description: "Also create the GitHub release for the tag"
+        type: boolean
+        default: false
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    env:
+      GH_REPO: sNNNeaker/ha-infinitecampus   # per repo
+      BRANCH: main                           # per repo
+      DOMAIN: infinitecampus                 # per repo, "" when the repo is not an integration
+      DRY_RUN: ${{ inputs.dry_run }}
+      TAG: ${{ inputs.tag }}
+      RELEASE: ${{ inputs.release }}
+      GH_TOKEN: ${{ secrets.GH_RELEASE_TOKEN }}
+      FORGE_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      PRIVATE_PATTERN: ${{ vars.PRIVATE_PATTERN }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Checks
+        run: |
+          set -euo pipefail
+          [ -n "$GH_TOKEN" ] || { echo "Secret GH_RELEASE_TOKEN is missing"; exit 1; }
+          [ -n "$PRIVATE_PATTERN" ] || { echo "Variable PRIVATE_PATTERN is missing"; exit 1; }
+          [ "$GITHUB_REF_NAME" = "$BRANCH" ] || { echo "Run this on $BRANCH, not on $GITHUB_REF_NAME"; exit 1; }
+
+          echo "--- 1. local tests of this commit must be green"
+          curl -sf -H "Authorization: token $FORGE_TOKEN" \
+            "$GITHUB_API_URL/repos/$GITHUB_REPOSITORY/commits/$GITHUB_SHA/statuses?limit=50" > /tmp/statuses.json
+          jq -r '.[] | "\(.context): \(.status)"' /tmp/statuses.json
+          jq -e '[.[] | select(.context | startswith("Local test"))] | group_by(.context) | map(max_by(.id).status) | (length > 0 and all(. == "success"))' /tmp/statuses.json >/dev/null \
+            || { echo "Local test is not green for $GITHUB_SHA"; exit 1; }
+
+          echo "--- 2. GitHub must be an ancestor (fast-forward only, never a force push)"
+          git remote add github "https://github.com/$GH_REPO.git"
+          git config "http.https://github.com/.extraheader" "Authorization: Basic $(printf 'x-access-token:%s' "$GH_TOKEN" | base64 -w0)"
+          git fetch -q github "$BRANCH"
+          git merge-base --is-ancestor FETCH_HEAD HEAD \
+            || { echo "GitHub $BRANCH has commits that are not here. Merge them first."; exit 1; }
+          echo "Commits to publish:"
+          git log --oneline FETCH_HEAD..HEAD
+
+          echo "--- 3. no private data in the lines these commits add"
+          if git log -p FETCH_HEAD..HEAD | grep -nE "^\+.*($PRIVATE_PATTERN)"; then
+            echo "The lines above match PRIVATE_PATTERN. Remove them from the history before releasing."; exit 1
+          fi
+
+          echo "--- 4. tag"
+          if [ -n "$TAG" ]; then
+            [ "$(git rev-parse -q --verify "refs/tags/$TAG^{commit}")" = "$GITHUB_SHA" ] \
+              || { echo "Tag $TAG does not exist here or does not point at this commit"; exit 1; }
+            if [ -n "$DOMAIN" ]; then
+              v=$(jq -r .version "custom_components/$DOMAIN/manifest.json")
+              [ "v$v" = "$TAG" ] || { echo "manifest.json version $v does not match tag $TAG"; exit 1; }
+            fi
+          fi
+          if [ "$RELEASE" = "true" ] && [ -z "$TAG" ]; then echo "A release needs a tag"; exit 1; fi
+
+      - name: Push to GitHub
+        run: |
+          set -euo pipefail
+          opt="--dry-run"
+          if [ "$DRY_RUN" = "false" ]; then opt=""; fi
+          echo "Mode: ${opt:-REAL PUSH}"
+          git push $opt github "HEAD:refs/heads/$BRANCH"
+          if [ -n "$TAG" ]; then git push $opt github "refs/tags/$TAG"; fi
+
+      - name: GitHub release
+        run: |
+          set -euo pipefail
+          if [ "$RELEASE" != "true" ] || [ "$DRY_RUN" != "false" ]; then echo "skipped"; exit 0; fi
+          curl -sf -X POST -H "Authorization: Bearer $GH_TOKEN" -H "Accept: application/vnd.github+json" \
+            "https://api.github.com/repos/$GH_REPO/releases" \
+            -d "{\"tag_name\":\"$TAG\",\"generate_release_notes\":true}" | jq -r .html_url
