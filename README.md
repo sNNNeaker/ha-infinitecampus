@@ -106,6 +106,21 @@ Day status rules:
 
 `Photo` image entity (one per student): the student's picture from the parent portal (`personPicture.jsp`), checked once a day, so a new school photo comes in automatically. Stays unknown if the portal has no photo. Like every image entity, it is only served to logged-in users or with the entity's rotating access token (`entity_picture` attribute), so it can be used as a template `picture` elsewhere.
 
+## School day (this fork)
+
+`School day` binary sensor (one per student): on when today is an instructional day in the student's school calendar (`/campus/api/campus/instructionalDays`). Teacher-only days (professional development, comp days) count as no school. Unavailable when the portal returns no calendar.
+
+Attributes:
+
+- `reason`: name of today's calendar event, e.g. `Thanksgiving Break` (none on normal days)
+- `next_school_day`: next instructional day after today (`YYYY-MM-DD`)
+- `upcoming_school_days`: instructional days from today through the next 13 days
+- `first_day`, `last_day`: first and last instructional day of the school year
+
+`School Calendar` calendar (one per student): one all-day event for every weekday without instruction between the first and last day of the school year, named after the portal's day event (`Holiday`, `Fall Break`, …) or `No school`.
+
+The school calendar is fetched once a day.
+
 ## Notes
 
 - This uses the Infinite Campus `parents` portal.

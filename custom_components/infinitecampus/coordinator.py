@@ -90,6 +90,8 @@ class StudentSnapshot:
     attendance_total_tardy: int | None
     attendance_by_course: dict[str, dict[str, int]]
     attendance_days: list[dict[str, Any]] = field(default_factory=list)
+    instructional_days: list[str] = field(default_factory=list)
+    day_events: list[dict[str, Any]] = field(default_factory=list)
 
 
 class InfiniteCampusDataUpdateCoordinator(
@@ -111,6 +113,10 @@ class InfiniteCampusDataUpdateCoordinator(
             update_interval=DEFAULT_UPDATE_INTERVAL,
         )
         self._client = client
+        # person_id -> (fetch date, instructional days, day events); the school calendar changes rarely.
+        self._school_calendar_cache: dict[
+            int, tuple[date, list[str], list[dict[str, Any]]]
+        ] = {}
 
     @property
     def client(self) -> InfiniteCampusClient:
@@ -222,6 +228,9 @@ class InfiniteCampusDataUpdateCoordinator(
                     attendance_total_absent = 0
                     attendance_total_tardy = 0
 
+                instructional_days, day_events = await self._async_school_calendar(
+                    student, person_id, today
+                )
                 snapshots[person_id] = StudentSnapshot(
                     person_id=person_id,
                     name=name,
@@ -254,6 +263,8 @@ class InfiniteCampusDataUpdateCoordinator(
                     attendance_total_tardy=attendance_total_tardy,
                     attendance_by_course=attendance_by_course,
                     attendance_days=attendance_days,
+                    instructional_days=instructional_days,
+                    day_events=day_events,
                 )
 
             return snapshots
@@ -261,6 +272,30 @@ class InfiniteCampusDataUpdateCoordinator(
             raise ConfigEntryAuthFailed("Invalid authentication") from err
         except (InfiniteCampusConnectionError, InfiniteCampusError) as err:
             raise UpdateFailed(str(err)) from err
+
+    async def _async_school_calendar(
+        self, student: dict[str, Any], person_id: int, today: date
+    ) -> tuple[list[str], list[dict[str, Any]]]:
+        """Instructional days and day events, fetched once per day per student."""
+        cached = self._school_calendar_cache.get(person_id)
+        if cached and cached[0] == today:
+            return cached[1], cached[2]
+        enrollments = student.get("enrollments") or []
+        calendar_id = _coerce_int(enrollments[0].get("calendarID")) if enrollments else None
+        structure_id = _coerce_int(enrollments[0].get("structureID")) if enrollments else None
+        try:
+            days = (
+                await self._client.async_get_instructional_days(calendar_id, structure_id)
+                if calendar_id is not None and structure_id is not None
+                else []
+            )
+            events = await self._client.async_get_day_events(person_id)
+        except InfiniteCampusConnectionError as err:
+            # Keep the last good data; the next update tries again.
+            _LOGGER.debug("School calendar for %s not updated: %s", person_id, err)
+            return (cached[1], cached[2]) if cached else ([], [])
+        self._school_calendar_cache[person_id] = (today, days, events)
+        return days, events
 
 
 def _join_name(first: str | None, middle: str | None, last: str | None) -> str:
@@ -967,3 +1002,13 @@ def _compute_overall_grade(grades: dict[int, CourseGrade]) -> float | str | None
             counts[value] = counts.get(value, 0) + 1
         return max(counts, key=counts.get)
     return "In Progress"
+
+
+def day_event_name(events: list[dict[str, Any]], day: date) -> str | None:
+    """Names of the day events on a date, joined with ', ' (None if there are none)."""
+    names = [
+        str(e.get("name")).strip()
+        for e in events
+        if str(e.get("date"))[:10] == day.isoformat() and e.get("name")
+    ]
+    return ", ".join(dict.fromkeys(names)) or None

@@ -214,6 +214,43 @@ class InfiniteCampusClient:
         )
         return data if isinstance(data, list) else []
 
+    async def async_get_instructional_days(
+        self, calendar_id: int, structure_id: int
+    ) -> list[str]:
+        """Dates (YYYY-MM-DD) with instruction for a calendar and schedule structure."""
+        params = {"calendarID": str(calendar_id), "structureID": str(structure_id)}
+        data = await self._request_json(
+            "GET",
+            "/campus/api/campus/instructionalDays",
+            params=params,
+        )
+        if not isinstance(data, list):
+            return []
+        return sorted(
+            {
+                str(item["date"])[:10]
+                for item in data
+                if isinstance(item, dict) and item.get("date")
+            }
+        )
+
+    async def async_get_day_events(self, person_id: int) -> list[dict[str, Any]]:
+        """Named calendar days (holidays, breaks, staff days) of the student's enrollments."""
+        params = {"personID": str(person_id)}
+        data = await self._request_json(
+            "GET",
+            "/campus/resources/portal/dayEvent/byEnrollment",
+            params=params,
+        )
+        events: list[dict[str, Any]] = []
+        if isinstance(data, list):
+            for group in data:
+                if isinstance(group, dict):
+                    events.extend(
+                        e for e in group.get("events") or [] if isinstance(e, dict)
+                    )
+        return events
+
     @staticmethod
     def _coerce_int(value: Any) -> int | None:
         if value is None:

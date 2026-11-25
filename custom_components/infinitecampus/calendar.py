@@ -18,6 +18,7 @@ from .coordinator import (
     InfiniteCampusDataUpdateCoordinator,
     StudentSnapshot,
     attendance_today,
+    day_event_name,
 )
 
 _STATUS_SUMMARY = {
@@ -38,10 +39,11 @@ async def async_setup_entry(
     async_add_entities: AddEntitiesCallback,
 ) -> None:
     coordinator: InfiniteCampusDataUpdateCoordinator = hass.data[DOMAIN][entry.entry_id]
-    async_add_entities(
-        InfiniteCampusAttendanceCalendar(coordinator, student)
-        for student in coordinator.data.values()
-    )
+    entities: list[CalendarEntity] = []
+    for student in coordinator.data.values():
+        entities.append(InfiniteCampusAttendanceCalendar(coordinator, student))
+        entities.append(InfiniteCampusSchoolCalendar(coordinator, student))
+    async_add_entities(entities)
 
 
 class InfiniteCampusAttendanceCalendar(
@@ -133,3 +135,66 @@ def _build_event(day: dict[str, Any]) -> CalendarEvent:
         summary=summary,
         description="\n".join(lines) or None,
     )
+
+
+class InfiniteCampusSchoolCalendar(
+    CoordinatorEntity[InfiniteCampusDataUpdateCoordinator], CalendarEntity
+):
+    """All-day event for every weekday without instruction inside the school year."""
+
+    _attr_icon = "mdi:calendar-remove"
+
+    def __init__(
+        self,
+        coordinator: InfiniteCampusDataUpdateCoordinator,
+        student: StudentSnapshot,
+    ) -> None:
+        super().__init__(coordinator)
+        self._person_id = student.person_id
+        self._student_name = student.name
+        self._attr_unique_id = f"{student.person_id}_school_calendar"
+        self._attr_name = f"{student.name} School Calendar"
+
+    @property
+    def device_info(self) -> DeviceInfo:
+        return DeviceInfo(
+            identifiers={(DOMAIN, str(self._person_id))},
+            name=self._student_name,
+            manufacturer="Infinite Campus",
+            model="Student",
+        )
+
+    def _no_school_events(self, start: date, end: date) -> list[CalendarEvent]:
+        student = self.coordinator.data.get(self._person_id)
+        if not student or not student.instructional_days:
+            return []
+        days = set(student.instructional_days)
+        first = date.fromisoformat(student.instructional_days[0])
+        last = date.fromisoformat(student.instructional_days[-1])
+        day = max(start, first)
+        events: list[CalendarEvent] = []
+        while day < end and day <= last:
+            if day.weekday() < 5 and day.isoformat() not in days:
+                events.append(
+                    CalendarEvent(
+                        start=day,
+                        end=day + timedelta(days=1),
+                        summary=day_event_name(student.day_events, day) or "No school",
+                    )
+                )
+            day += timedelta(days=1)
+        return events
+
+    @property
+    def event(self) -> CalendarEvent | None:
+        today = dt_util.now().date()
+        events = self._no_school_events(today, today + timedelta(days=1))
+        return events[0] if events else None
+
+    async def async_get_events(
+        self,
+        hass: HomeAssistant,
+        start_date: datetime,
+        end_date: datetime,
+    ) -> list[CalendarEvent]:
+        return self._no_school_events(_to_date(start_date), _to_date(end_date))
